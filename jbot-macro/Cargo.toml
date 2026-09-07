@@ -1,0 +1,10 @@
+[package]
+name = "jbot-macro"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0"
+syn = "3.0"

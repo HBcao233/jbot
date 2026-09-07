@@ -1,0 +1,38 @@
+[package]
+name = "jbot"
+version = "0.1.0"
+authors = ["HBcao <hbcaoqaq@outlook.com>"]
+license = "MIT OR Apache-2.0"
+description = ""
+homepage = "https://github.com/HBcao233/jbot"
+repository = "https://github.com/HBcao233/jbot"
+keywords = ["telegram", "bot"]
+categories = []
+edition = "2024"
+
+[dependencies]
+jbot-macro = { path = "../jbot-macro" }
+
+grammers-client = { path = "../../grammers/grammers-client", features = ["html"] }
+grammers-session = { path = "../../grammers/grammers-session", default-features = false, features = ["sqlite-storage"] }
+grammers-tl-types = { path = "../../grammers/grammers-tl-types" }
+
+anyhow = "1.0.104"
+dotenvy = "0.15.7"
+linkme = "0.3.37"
+log = "0.4.34"
+tokio = { version = "1.52.3", default-features = false, features = [
+    "signal",
+] }
+simple_logger = { version = "5.2.0", default-features = false, features = [
+    "colors",
+] }
+regex = "1.13.1"
+wreq = { version = "0.15.3", features = ["json", "stream"] }
+wreq-util = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0.20"
+futures-util = "0.3.34"
+redb = "4.2.0"
+jiff = "0.2.35"
