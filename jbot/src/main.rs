@@ -67,13 +67,15 @@ async fn handle_update(client: Client, update: Update) {
                 }
             }
 
-            let msg = Arc::new(message.into_inner());
+            let message = Arc::new(message.into_inner());
             for handler in NEW_MESSAGE_HANDLERS {
-                handler(client.clone(), Arc::clone(&msg)).await;
+                handler(client.clone(), Arc::clone(&message)).await;
             }
 
-            if let Some(grouped_id) = msg.grouped_id() {
-                grouped::get_or_insert(client.clone(), peer_id, grouped_id, msg);
+            if let Some(media) = message.media() {
+                if crate::utils::can_grouped(&media) {
+                    grouped::get_or_insert(client.clone(), peer_id, message);
+                }
             }
         }
         _ => {}
@@ -91,7 +93,7 @@ fn safe_truncate(text: &str, num: usize) -> String {
 
 fn peer_full_name(peer: &Peer) -> Option<String> {
     match peer {
-        Peer::User(user) => Some(user.full_name()),
+        Peer::User(user) => Some(safe_truncate(&user.full_name(), 20)),
         Peer::Group(group) => group.title().map(str::to_string),
         Peer::Channel(channel) => Some(channel.title().to_string()),
         Peer::Community(community) => Some(community.title().to_string()),
@@ -110,22 +112,29 @@ fn get_peer_info(peer_id: &PeerId, peer: Option<&Peer>) -> String {
     format!("{name}({peer_id}{username})")
 }
 
-async fn async_main() -> anyhow::Result<()> {
+async fn async_main() {
     SimpleLogger::new()
         .with_level(LevelFilter::Info)
         .init()
         .unwrap();
 
-    dotenvy::dotenv()?;
+    dotenvy::dotenv().unwrap();
 
     for setup in SETUPS {
-        setup()?;
+        if let Err(e) = setup() {
+            log::error!("初始化失败: {e}");
+            return;
+        }
     }
 
-    let api_id = env::var("TG_ID")?.parse().expect("TG_ID invalid");
+    let api_id = env::var("TG_ID")
+        .unwrap_or_default()
+        .parse()
+        .expect("TG_ID invalid");
+    let api_hash = env::var("TG_HASH").unwrap();
     let token = env::var("TOKEN").expect("token missing");
 
-    let session = Arc::new(SqliteSession::open(SESSION_FILE).await?);
+    let session = Arc::new(SqliteSession::open(SESSION_FILE).await.unwrap());
 
     let SenderPool {
         runner,
@@ -135,51 +144,57 @@ async fn async_main() -> anyhow::Result<()> {
     let client = Client::new(handle.clone());
     let pool_task = tokio::spawn(runner.run());
 
-    if !client.is_authorized().await? {
+    if !client.is_authorized().await.unwrap() {
         log::info!("Signing in...");
-        client.bot_sign_in(&token, &env::var("TG_HASH")?).await?;
+        client
+            .bot_sign_in(&token, &api_hash)
+            .await
+            .expect("Sign in failed.");
         log::info!("Signed in!");
     }
 
     log::info!("Waiting for messages...");
 
-    // This example spawns a task to handle each update.
-    // To guarantee that all handlers run to completion, they're stored in this set.
-    // You can use `task::spawn` if you don't care about dropping unfinished handlers midway.
     let mut handler_tasks = JoinSet::new();
     let mut updates = client
         .stream_updates(updates, UpdatesConfiguration { catch_up: true })
         .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+        .unwrap();
     let mut now = Instant::now();
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
+            result = updates.next(), if handler_tasks.is_empty() => {
+                match result {
+                    Ok(update) => {
+                        let handle = client.clone();
+                        handler_tasks.spawn(handle_update(handle, update));
+                    }
+                    Err(e) => {
+                        log::error!("获取更新失败: {e}");
+                    }
+                }
+            }
             Some(res) = handler_tasks.join_next(), if !handler_tasks.is_empty() => {
                 if let Err(e) = res {
-                    panic!("handler task panicked: {e}");
+                    log::error!("handler task panicked: {e}");
                 } else if handler_tasks.is_empty() && now.elapsed() >= Duration::from_secs(SYNC_REST_SECONDS) {
                     now = Instant::now();
                     log::info!("Saving session when idle...");
-                    updates
+                    if let Err(e) = updates
                         .sync_update_state()
-                        .await
-                        .map_err(|e| anyhow::anyhow!(e))?;
+                        .await {
+                        log::error!("Sync update state failed: {e}");
+                    }
                 }
-            }
-            update = updates.next() => {
-                let update = update?;
-                let handle = client.clone();
-                handler_tasks.spawn(handle_update(handle, update));
             }
         }
     }
 
     log::info!("Saving session file...");
-    updates
-        .sync_update_state()
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?; // you usually want this before closing the session
+    if let Err(e) = updates.sync_update_state().await {
+        log::error!("Sync update state failed: {e}")
+    }
 
     // Pool's `run()` won't finish until all handles are dropped or quit is called.
     // Here there are at least three handles alive: `handle`, `client` and `updates`
@@ -198,14 +213,12 @@ async fn async_main() -> anyhow::Result<()> {
     // Give a chance to all on-going handlers to finish.
     log::info!("Waiting for any slow handlers to finish...");
     while let Some(_) = handler_tasks.join_next().await {}
-
-    Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async_main())
+        .block_on(async_main());
 }
