@@ -13,28 +13,6 @@ if [[ ! -z "$p" ]]; then
     start_time=$(ps -p $p -o lstart | sed -n '2p')
 fi
 
-# 代码补全
-cat > /etc/bash_completion.d/tgbot.bash << EOF
-_foo()
-{
-    COMPREPLY=()
-    local cur=\${COMP_WORDS[COMP_CWORD]}
-    local cmd=\${COMP_WORDS[COMP_CWORD-1]}
-    case "\$cmd" in
-        'jbot')
-            COMPREPLY=( \$(compgen -W 'status start stop restart log ps' -- \$cur) ) 
-            ;;
-        '*')
-            ;;
-    esac
-    return 0
-}
-complete -F _foo tgbot
-EOF
-cat > "$HOME/.config/fish/completions/tgbot.fish" << EOF
-complete -x -c tgbot -a "status start stop restart log ps"
-EOF
-
 _status(){
     s=${status}
     printf ${color[$s]}
@@ -50,16 +28,31 @@ _status(){
 }
 
 _stop(){
-  if [ ${status} -eq 0 ]; then
-    echo "jbot 未启动"
-  else
-    p=${pid}
-    kill -SIGINT "$p"
-    echo "杀死进程 $p"
+    if [ ${status} -eq 0 ]; then
+        echo "jbot 未启动"
+    else
+        p=${pid}
+        kill -SIGINT "$p"
+        echo "杀死进程 $p"
+    fi
+
+    local begin=$(date +%s)
+    local end
+    while kill -0 "$pid" > /dev/null 2>&1
+    do
+        echo -n "."
+        sleep 0.1;
+
+        end=$(date +%s)
+        if [ $((end-begin)) -gt 2  ]; then
+            echo -e "\nTimeout"
+            break;
+        fi
+    done
+
     pid=0
     status=0
     start_time=""
-  fi
 }
 
 _start(){
