@@ -9,29 +9,6 @@ use grammers_client::update::{CallbackQuery, Update};
 use grammers_session::types::{PeerKind, PeerRef};
 use grammers_tl_types as tl;
 
-#[crate::on_new_message]
-async fn message_handler(client: Client, message: Arc<Message>) {
-    if message.outgoing() {
-        return;
-    }
-    let peer_id = message.peer_id();
-    if peer_id.kind() != PeerKind::User {
-        return;
-    }
-
-    if let Ok(Some(peer_ref)) = message.peer_ref().await {
-        if let Some(media) = message.media() {
-            if crate::utils::can_grouped(&media) {
-                if message.grouped_id().is_none() {
-                    let mut messages = Vec::with_capacity(1);
-                    messages.push(message);
-                    send_merge_button(client.clone(), peer_ref, &messages).await;
-                }
-            }
-        }
-    }
-}
-
 #[crate::on_grouped_messages]
 async fn messages_handler(client: Client, messages: Vec<Arc<Message>>) {
     let message = messages.first().unwrap();
@@ -114,7 +91,7 @@ async fn send_merge_button(client: Client, peer: PeerRef, messages: &[Arc<Messag
     let text = format!("收到 {} 条媒体", messages.len());
     let message_ids: Vec<i32> = messages.iter().map(|m| m.id()).collect();
     let reply_markup = ReplyMarkup::from_buttons(&[vec![AddMergeButton::new(&message_ids).raw]]);
-    match client
+    if let Err(e) = client
         .send_message(
             peer,
             InputMessage::new()
@@ -124,8 +101,7 @@ async fn send_merge_button(client: Client, peer: PeerRef, messages: &[Arc<Messag
         )
         .await
     {
-        Ok(_) => {}
-        Err(e) => log::error!("合并button发送失败: {e}"),
+        log::error!("合并button发送失败: {e}");
     }
 }
 
@@ -221,23 +197,25 @@ async fn handle_finish_merge(callback: CallbackQuery, client: Client) {
                     .collect();
                 let count = medias.len();
 
-                match client.send_album(peer_ref, medias).await {
-                    Ok(_) => {
-                        let text = format!(
-                            "已成功合并 {} / {} 条媒体, 失败: {}",
-                            count, want, fail_count
-                        );
-                        if let Err(e) = callback.answer().respond(text).await {
-                            log::error!("回复失败按钮回调失败: {e}");
-                        }
+                let mut iter = medias.into_iter();
+                loop {
+                    let chunk: Vec<_> = iter.by_ref().take(10).collect();
+                    if chunk.is_empty() {
+                        break;
                     }
-                    Err(e) => {
+                    let chunk_size = chunk.len();
+                    if let Err(e) = client.send_album(peer_ref, chunk).await {
                         log::error!("发送合并媒体失败: {e}");
-                        if let Err(e) = callback.answer().text("发送合并媒体失败").send().await
-                        {
-                            log::error!("回复失败按钮回调失败: {e}");
-                        }
+                        fail_count += chunk_size;
                     }
+                }
+
+                let text = format!(
+                    "已成功合并 {} / {} 条媒体, 失败: {}",
+                    count, want, fail_count
+                );
+                if let Err(e) = callback.answer().respond(text).await {
+                    log::error!("回复失败按钮回调失败: {e}");
                 }
             }
         }
