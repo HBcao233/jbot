@@ -4,11 +4,12 @@ pub mod curl;
 pub mod database;
 mod grouped;
 mod plugins;
+pub mod progress;
 mod utils;
 
 use std::env;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use grammers_client::Client;
 use grammers_client::message::Message;
@@ -23,6 +24,7 @@ use tokio::task::JoinSet;
 use tokio::time::interval;
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(60);
+const MAX_SYNC_INTERVAL: Duration = Duration::from_secs(600);
 const SESSION_FILE: &str = "jbot.session";
 
 type HandlerResult = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
@@ -129,10 +131,13 @@ async fn async_main() {
         .await
         .unwrap();
     let mut timer = interval(SYNC_INTERVAL);
+    let mut dirty = false;
+    let mut last_save_time = Instant::now();
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             result = updates.next() => {
+                dirty = true;
                 match result {
                     Ok(update) => {
                         let handle = client.clone();
@@ -149,12 +154,18 @@ async fn async_main() {
                 }
             }
             _ = timer.tick() => {
-                if handler_tasks.is_empty() {
+                if dirty && (handler_tasks.is_empty() || last_save_time.elapsed() > MAX_SYNC_INTERVAL) {
                     log::info!("Saving session periodically...");
-                    if let Err(e) = updates
+                    match updates
                         .sync_update_state()
                         .await {
-                        log::error!("Sync update state failed: {e}");
+                        Ok(_) => {
+                            dirty = false;
+                            last_save_time = Instant::now();
+                        }
+                        Err(e) => {
+                            log::error!("Sync update state failed: {e}");
+                        }
                     }
                 }
             }

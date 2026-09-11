@@ -19,8 +19,10 @@ use tokio::process::Command;
 use tokio::sync::{Mutex, oneshot};
 use types::BiliId;
 
-use crate::curl::stream_download;
+use crate::curl::{stream_download, stream_download_with_callback};
 use crate::database as db;
+use crate::progress::{Progress, ProgressScheduler};
+use crate::utils::upload_file_with_callback;
 
 const HELP: &str = "Bilibili 解析。用法: /bili <url>";
 
@@ -161,6 +163,7 @@ async fn send_bili(
                 .reply_to(Some(msg_id)),
         )
         .await?;
+    let mid = Arc::new(mid);
 
     let wreq_client = crate::curl::get_client().build()?;
     let referer = format!("https://www.bilibili.com/video/{}/", bvid);
@@ -353,6 +356,8 @@ async fn send_bili(
             }
         };
 
+        let bar = ProgressScheduler::new(Progress::new(Arc::clone(&mid)));
+
         if let Some(dash) = playurl.dash {
             let audio = dash.audio.into_iter().max_by_key(|x| x.id).unwrap();
             let video = dash
@@ -371,28 +376,51 @@ async fn send_bili(
             let video_name = format!("{key}_video.mp4");
             let name = format!("{key}.mp4");
 
-            mid.edit(format!("[{bvid}] 下载音频中...")).await?;
-            let audio_path =
-                match stream_download(&wreq_client, audio_url, &audio_name, &headers).await {
-                    Ok(path) => path,
-                    Err(e) => {
-                        let tip = format!("[{bvid}] 音频下载失败");
-                        log::error!("{tip}: {e}");
-                        mid.edit(tip).await?;
-                        return Ok(());
-                    }
-                };
-            mid.edit(format!("[{bvid}] 下载视频中...")).await?;
-            let video_path =
-                match stream_download(&wreq_client, video_url, &video_name, &headers).await {
-                    Ok(path) => path,
-                    Err(e) => {
-                        let tip = format!("[{bvid}] 视频下载失败");
-                        log::error!("{tip}: {e}");
-                        mid.edit(tip).await?;
-                        return Ok(());
-                    }
-                };
+            let prefix = format!("[{bvid}] 下载音频中...");
+            bar.prefix(&prefix);
+            mid.edit(prefix).await?;
+            let audio_path = match stream_download_with_callback(
+                &wreq_client,
+                audio_url,
+                &audio_name,
+                &headers,
+                |downloaded, total| {
+                    bar.sync_update(downloaded, total);
+                },
+            )
+            .await
+            {
+                Ok(path) => path,
+                Err(e) => {
+                    let tip = format!("[{bvid}] 音频下载失败");
+                    log::error!("{tip}: {e}");
+                    mid.edit(tip).await?;
+                    return Ok(());
+                }
+            };
+
+            let prefix = format!("[{bvid}] 下载视频中...");
+            bar.prefix(&prefix);
+            mid.edit(prefix).await?;
+            let video_path = match stream_download_with_callback(
+                &wreq_client,
+                video_url,
+                &video_name,
+                &headers,
+                |downloaded, total| {
+                    bar.sync_update(downloaded, total);
+                },
+            )
+            .await
+            {
+                Ok(path) => path,
+                Err(e) => {
+                    let tip = format!("[{bvid}] 视频下载失败");
+                    log::error!("{tip}: {e}");
+                    mid.edit(tip).await?;
+                    return Ok(());
+                }
+            };
 
             mid.edit(format!("[{bvid}] 处理中...")).await?;
             let path = match merge_media(audio_path, video_path, &name).await {
@@ -405,8 +433,14 @@ async fn send_bili(
                 }
             };
 
-            mid.edit(format!("[{bvid}] 上传中...")).await?;
-            let Ok(uploaded) = client.upload_file(path).await else {
+            let prefix = format!("[{bvid}] 上传中...");
+            bar.prefix(&prefix);
+            mid.edit(prefix).await?;
+            let Ok(uploaded) = upload_file_with_callback(&client, path, |uploaded, total| {
+                bar.sync_update(uploaded, total);
+            })
+            .await
+            else {
                 mid.edit(format!("[{bvid}] 上传失败")).await?;
                 return Ok(());
             };
