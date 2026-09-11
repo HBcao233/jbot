@@ -8,10 +8,10 @@ use wreq::Client;
 use wreq::StatusCode;
 
 use super::types::{
-    BiliInfo, BiliResult, DescItem, FINGER_HOST, FingerResult, GAIA_VALIDATE_HOST,
-    GAIA_VGATE_HOST, GaiaError, GaiaValidateResult, GaiaVgateResult, Geetest, GetBiliError,
-    GetPlayurlError, INFO_HOST, MIXIN_KEY_ENC_TAB, NAV_HOST, NavResult,
-    PLAYURL_HOST, Page, PlayurlInfo, PlayurlResult, QN, VgateData, WbiImg,
+    BiliInfo, BiliResult, DescItem, FINGER_HOST, FingerResult, GAIA_VALIDATE_HOST, GAIA_VGATE_HOST,
+    GaiaError, GaiaValidateResult, GaiaVgateResult, Geetest, GetBiliError, GetPlayurlError,
+    INFO_HOST, MIXIN_KEY_ENC_TAB, NAV_HOST, NavResult, PLAYURL_HOST, Page, PlayurlInfo,
+    PlayurlResult, QN, VgateData, WbiImg,
 };
 
 static BUVID: OnceLock<(String, String)> = OnceLock::new();
@@ -20,11 +20,7 @@ async fn get_buvid(client: &Client) -> Option<(String, String)> {
     match BUVID.get() {
         Some((b3, b4)) => Some((b3.clone(), b4.clone())),
         None => {
-            let response = client
-                .get(FINGER_HOST)
-                .send()
-                .await
-                .ok()?;
+            let response = client.get(FINGER_HOST).send().await.ok()?;
             let res: FingerResult = response.json().await.ok()?;
             let b3 = res.data.b_3;
             let b4 = res.data.b_4;
@@ -35,10 +31,7 @@ async fn get_buvid(client: &Client) -> Option<(String, String)> {
 }
 
 async fn get_mixin_key(client: &Client) -> wreq::Result<String> {
-    let response = client
-        .get(NAV_HOST)
-        .send()
-        .await?;
+    let response = client.get(NAV_HOST).send().await?;
     let res: NavResult = response.json().await?;
     let WbiImg { img_url, sub_url } = res.data.wbi_img;
     let img_key = img_url.rsplit('/').next().unwrap();

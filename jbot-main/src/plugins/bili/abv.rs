@@ -13,10 +13,10 @@ const BV_LEN: usize = 12;
 const PREFIX: &str = "BV1";
 
 const ALPHABET: [u8; BASE as usize] = [
-  b'F', b'c', b'w', b'A', b'P', b'N', b'K', b'T', b'M', b'u', b'g', b'3', b'G', b'V', b'5', b'L',
-  b'j', b'7', b'E', b'J', b'n', b'H', b'p', b'W', b's', b'x', b'4', b't', b'b', b'8', b'h', b'a',
-  b'Y', b'e', b'v', b'i', b'q', b'B', b'z', b'6', b'r', b'k', b'C', b'y', b'1', b'2', b'm', b'U',
-  b'S', b'D', b'Q', b'X', b'9', b'R', b'd', b'o', b'Z', b'f',
+    b'F', b'c', b'w', b'A', b'P', b'N', b'K', b'T', b'M', b'u', b'g', b'3', b'G', b'V', b'5', b'L',
+    b'j', b'7', b'E', b'J', b'n', b'H', b'p', b'W', b's', b'x', b'4', b't', b'b', b'8', b'h', b'a',
+    b'Y', b'e', b'v', b'i', b'q', b'B', b'z', b'6', b'r', b'k', b'C', b'y', b'1', b'2', b'm', b'U',
+    b'S', b'D', b'Q', b'X', b'9', b'R', b'd', b'o', b'Z', b'f',
 ];
 
 #[rustfmt::skip]
@@ -35,112 +35,112 @@ fn rev(value: u8) -> Option<u8> {
 }
 
 pub fn av2bv(avid: u64) -> Result<String, ()> {
-  if avid < MIN_AID {
-    return Err(());
-  }
-  if avid >= MAX_AID {
-    return Err(());
-  }
-
-  let mut bytes: [u8; BV_LEN] = [
-    b'B', b'V', b'1', b'0', b'0', b'0', b'0', b'0', b'0', b'0', b'0', b'0',
-  ];
-
-  let mut bv_idx = BV_LEN - 1;
-  let mut tmp = (MAX_AID | avid) ^ XOR_CODE;
-  while tmp != 0 {
-    let table_idx = tmp % BASE;
-    // SAFETY: a positive number mod 58 is in 0..58
-    let part = unsafe { ALPHABET.get_unchecked(table_idx as usize) };
-    unsafe {
-      let ele = bytes.get_unchecked_mut(bv_idx);
-      *ele = *part;
+    if avid < MIN_AID {
+        return Err(());
     }
-    tmp /= BASE;
-    bv_idx -= 1;
-  }
+    if avid >= MAX_AID {
+        return Err(());
+    }
 
-  // SAFETY, 3 < 4 < 7 < 9 < BV_LEN
-  unsafe {
-    unchecked_swap(&mut bytes, 3, 9);
-    unchecked_swap(&mut bytes, 4, 7);
-  }
+    let mut bytes: [u8; BV_LEN] = [
+        b'B', b'V', b'1', b'0', b'0', b'0', b'0', b'0', b'0', b'0', b'0', b'0',
+    ];
 
-  // SAFETY: bytes represent an ASCII string
-  let str = unsafe { String::from_utf8_unchecked(bytes.to_vec()) };
+    let mut bv_idx = BV_LEN - 1;
+    let mut tmp = (MAX_AID | avid) ^ XOR_CODE;
+    while tmp != 0 {
+        let table_idx = tmp % BASE;
+        // SAFETY: a positive number mod 58 is in 0..58
+        let part = unsafe { ALPHABET.get_unchecked(table_idx as usize) };
+        unsafe {
+            let ele = bytes.get_unchecked_mut(bv_idx);
+            *ele = *part;
+        }
+        tmp /= BASE;
+        bv_idx -= 1;
+    }
 
-  Ok(str)
+    // SAFETY, 3 < 4 < 7 < 9 < BV_LEN
+    unsafe {
+        unchecked_swap(&mut bytes, 3, 9);
+        unchecked_swap(&mut bytes, 4, 7);
+    }
+
+    // SAFETY: bytes represent an ASCII string
+    let str = unsafe { String::from_utf8_unchecked(bytes.to_vec()) };
+
+    Ok(str)
 }
 
 pub fn bv2av<'a, S>(bvid: S) -> Result<u64, ()>
 where
-  S: Into<Cow<'a, str>>,
+    S: Into<Cow<'a, str>>,
 {
-  let bvid: Cow<_> = bvid.into();
-  if bvid.is_empty() {
-    return Err(());
-  }
+    let bvid: Cow<_> = bvid.into();
+    if bvid.is_empty() {
+        return Err(());
+    }
 
-  if !bvid.is_ascii() {
-    return Err(());
-  }
+    if !bvid.is_ascii() {
+        return Err(());
+    }
 
-  match bvid.as_bytes().len().cmp(&BV_LEN) {
-    std::cmp::Ordering::Less => return Err(()),
-    std::cmp::Ordering::Greater => return Err(()),
-    _ => {},
-  }
+    match bvid.as_bytes().len().cmp(&BV_LEN) {
+        std::cmp::Ordering::Less => return Err(()),
+        std::cmp::Ordering::Greater => return Err(()),
+        _ => {}
+    }
 
-  // SAFETY: Already checked before
-  let prefix = unsafe { bvid.get_unchecked(0..3) };
-  if !prefix.eq_ignore_ascii_case(PREFIX) {
-    return Err(());
-  }
+    // SAFETY: Already checked before
+    let prefix = unsafe { bvid.get_unchecked(0..3) };
+    if !prefix.eq_ignore_ascii_case(PREFIX) {
+        return Err(());
+    }
 
-  let mut bvid = match bvid {
-    Cow::Borrowed(str) => str.to_string(),
-    Cow::Owned(string) => string,
-  };
-
-  unsafe {
-    let bv_vec = bvid.as_mut_vec();
-    unchecked_swap(bv_vec, 3, 9);
-    unchecked_swap(bv_vec, 4, 7);
-  }
-
-  let mut tmp = 0;
-
-  for byte in &bvid.as_bytes()[3..] {
-    let Some(idx) = rev(*byte) else {
-      return Err(());
+    let mut bvid = match bvid {
+        Cow::Borrowed(str) => str.to_string(),
+        Cow::Owned(string) => string,
     };
-    tmp = tmp * BASE + idx as u64;
-  }
 
-  // Equivalence of: format!("{:b}", tmp).size()
-  let bin_len = if tmp == 0 {
-    0
-  } else {
-    u64::BITS - tmp.leading_zeros()
-  };
+    unsafe {
+        let bv_vec = bvid.as_mut_vec();
+        unchecked_swap(bv_vec, 3, 9);
+        unchecked_swap(bv_vec, 4, 7);
+    }
 
-  if bin_len != 52 {
-    return Err(());
-  }
+    let mut tmp = 0;
 
-  let avid = (tmp & MASK_CODE) ^ XOR_CODE;
+    for byte in &bvid.as_bytes()[3..] {
+        let Some(idx) = rev(*byte) else {
+            return Err(());
+        };
+        tmp = tmp * BASE + idx as u64;
+    }
 
-  if avid < MIN_AID {
-    return Err(());
-  }
+    // Equivalence of: format!("{:b}", tmp).size()
+    let bin_len = if tmp == 0 {
+        0
+    } else {
+        u64::BITS - tmp.leading_zeros()
+    };
 
-  Ok(avid)
+    if bin_len != 52 {
+        return Err(());
+    }
+
+    let avid = (tmp & MASK_CODE) ^ XOR_CODE;
+
+    if avid < MIN_AID {
+        return Err(());
+    }
+
+    Ok(avid)
 }
 
 unsafe fn unchecked_swap<I>(array: &mut [I], index_a: usize, index_b: usize) {
-  let pa = ptr::addr_of_mut!(array[index_a]);
-  let pb = ptr::addr_of_mut!(array[index_b]);
-  unsafe {
-    ptr::swap(pa, pb);
-  }
+    let pa = ptr::addr_of_mut!(array[index_a]);
+    let pb = ptr::addr_of_mut!(array[index_b]);
+    unsafe {
+        ptr::swap(pa, pb);
+    }
 }

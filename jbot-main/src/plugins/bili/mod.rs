@@ -1,6 +1,6 @@
+mod abv;
 mod data_source;
 mod types;
-mod abv;
 
 use std::collections::HashMap;
 use std::env;
@@ -306,9 +306,7 @@ async fn send_bili(
                             };
                             log::info!("grisk_id: {grisk_id}");
 
-                            match get_playurl(&wreq_client, aid, &bvid, cid, Some(grisk_id))
-                                .await
-                            {
+                            match get_playurl(&wreq_client, aid, &bvid, cid, Some(grisk_id)).await {
                                 Ok(p) => p,
                                 Err(e) => {
                                     client
@@ -374,25 +372,27 @@ async fn send_bili(
             let name = format!("{key}.mp4");
 
             mid.edit(format!("[{bvid}] 下载音频中...")).await?;
-            let audio_path = match stream_download(&wreq_client, audio_url, &audio_name, &headers).await {
-                Ok(path) => path,
-                Err(e) => {
-                    let tip = format!("[{bvid}] 音频下载失败");
-                    log::error!("{tip}: {e}");
-                    mid.edit(tip).await?;
-                    return Ok(());
-                }
-            };
+            let audio_path =
+                match stream_download(&wreq_client, audio_url, &audio_name, &headers).await {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let tip = format!("[{bvid}] 音频下载失败");
+                        log::error!("{tip}: {e}");
+                        mid.edit(tip).await?;
+                        return Ok(());
+                    }
+                };
             mid.edit(format!("[{bvid}] 下载视频中...")).await?;
-            let video_path = match stream_download(&wreq_client, video_url, &video_name, &headers).await {
-                Ok(path) => path,
-                Err(e) => {
-                    let tip = format!("[{bvid}] 视频下载失败");
-                    log::error!("{tip}: {e}");
-                    mid.edit(tip).await?;
-                    return Ok(());
-                }
-            };
+            let video_path =
+                match stream_download(&wreq_client, video_url, &video_name, &headers).await {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let tip = format!("[{bvid}] 视频下载失败");
+                        log::error!("{tip}: {e}");
+                        mid.edit(tip).await?;
+                        return Ok(());
+                    }
+                };
 
             mid.edit(format!("[{bvid}] 处理中...")).await?;
             let path = match merge_media(audio_path, video_path, &name).await {
@@ -549,7 +549,10 @@ async fn send_bili(
     };
 
     client
-        .send_message(peer_ref, InputMessage::new().photo(uploaded).reply_to(Some(msg_id)))
+        .send_message(
+            peer_ref,
+            InputMessage::new().photo(uploaded).reply_to(Some(msg_id)),
+        )
         .await?;
 
     Ok(())

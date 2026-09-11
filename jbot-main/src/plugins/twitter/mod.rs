@@ -207,20 +207,22 @@ async fn send_twitter(
                             format!("{}?name=orig", thumb_url)
                         };
                         let thumb_name = format!("{key}_thumb.jpg");
-                        let thumb = match stream_download(&wreq_client, thumb_url, &thumb_name, &headers).await
-                        {
-                            Ok(path) => match client.upload_file(path).await {
-                                Ok(uploaded) => Some(uploaded.raw),
+                        let thumb =
+                            match stream_download(&wreq_client, thumb_url, &thumb_name, &headers)
+                                .await
+                            {
+                                Ok(path) => match client.upload_file(path).await {
+                                    Ok(uploaded) => Some(uploaded.raw),
+                                    Err(e) => {
+                                        log::warn!("上传 {thumb_name} 失败: {e}");
+                                        None
+                                    }
+                                },
                                 Err(e) => {
-                                    log::warn!("上传 {thumb_name} 失败: {e}");
+                                    log::warn!("下载 {thumb_name} 失败: {e}");
                                     None
                                 }
-                            },
-                            Err(e) => {
-                                log::warn!("下载 {thumb_name} 失败: {e}");
-                                None
-                            }
-                        };
+                            };
 
                         let m = tl::types::InputMediaUploadedDocument {
                             nosound_video: true,
