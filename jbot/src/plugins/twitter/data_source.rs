@@ -1,11 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use futures_util::StreamExt;
 use jiff::Timestamp;
 use regex::regex;
 use serde_json::{Value, json};
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use wreq::StatusCode;
 use wreq::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderName, HeaderValue};
 
@@ -210,45 +208,6 @@ pub fn parse_msg(tweet: &Tweet) -> String {
     } else {
         format!("{msg}:\n<blockquote expandable>{full_text}</blockquote>")
     }
-}
-
-pub async fn download_media(
-    client: &wreq::Client,
-    url: String,
-    name: &str,
-) -> anyhow::Result<PathBuf> {
-    let cache_dir = Path::new("cache");
-    if let Err(e) = fs::create_dir_all(cache_dir).await {
-        log::error!("缓存文件夹创建失败: {e:?}");
-    }
-
-    let path = cache_dir.join(name);
-    if path.is_file() {
-        return Ok(path);
-    }
-
-    let response = client.get(url).send().await?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(anyhow::anyhow!(format!(
-            "下载失败，HTTP 状态码：{}",
-            status,
-        )));
-    }
-
-    let mut stream = response.bytes_stream();
-    let mut file = fs::File::create(&path).await?;
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-
-        file.write_all(&chunk).await?;
-    }
-
-    file.flush().await?;
-
-    Ok(path)
 }
 
 fn replace_unsupported_characters(s: &str) -> String {

@@ -1,6 +1,6 @@
 extern crate jbot_macro;
 mod button;
-mod curl;
+pub mod curl;
 pub mod database;
 mod grouped;
 mod plugins;
@@ -8,23 +8,21 @@ mod utils;
 
 use std::env;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use curl::get_client;
 use grammers_client::Client;
 use grammers_client::message::Message;
-use grammers_client::peer::Peer;
 use grammers_client::sender::{SenderPool, UpdatesConfiguration};
 use grammers_client::update::Update;
 use grammers_session::storages::SqliteSession;
-use grammers_session::types::PeerId;
 pub use jbot_macro::{on_grouped_messages, on_new_message, on_setup, on_update};
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use tokio::runtime;
 use tokio::task::JoinSet;
+use tokio::time::interval;
 
-const SYNC_REST_SECONDS: u64 = 60;
+const SYNC_INTERVAL: Duration = Duration::from_secs(60);
 const SESSION_FILE: &str = "jbot.session";
 
 type HandlerResult = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
@@ -54,11 +52,11 @@ async fn handle_update(client: Client, update: Update) {
             let peer_id = message.peer_id();
             if !message.outgoing() {
                 if let Some(sender_id) = message.sender_id() {
-                    let sender_info = get_peer_info(&sender_id, message.sender());
-                    let text = safe_truncate(message.text(), 30);
+                    let sender_info = crate::utils::get_peer_info(&sender_id, message.sender());
+                    let text = crate::utils::safe_truncate(message.text(), 30);
 
                     let peer_info = if sender_id != peer_id {
-                        let peer_info = get_peer_info(&peer_id, message.peer());
+                        let peer_info = crate::utils::get_peer_info(&peer_id, message.peer());
                         &format!(" in {peer_info}")
                     } else {
                         ""
@@ -80,36 +78,6 @@ async fn handle_update(client: Client, update: Update) {
         }
         _ => {}
     }
-}
-
-fn safe_truncate(text: &str, num: usize) -> String {
-    if text.chars().count() <= num {
-        text.to_string()
-    } else {
-        let text: String = text.chars().take(num).collect();
-        format!("{}...", text)
-    }
-}
-
-fn peer_full_name(peer: &Peer) -> Option<String> {
-    match peer {
-        Peer::User(user) => Some(safe_truncate(&user.full_name(), 20)),
-        Peer::Group(group) => group.title().map(str::to_string),
-        Peer::Channel(channel) => Some(channel.title().to_string()),
-        Peer::Community(community) => Some(community.title().to_string()),
-    }
-}
-
-fn get_peer_info(peer_id: &PeerId, peer: Option<&Peer>) -> String {
-    let name = peer
-        .and_then(peer_full_name)
-        .unwrap_or("Unknown".to_string());
-    let username = peer.and_then(|p| p.username());
-    let username = match username {
-        Some(x) => &format!(" <@{x}>"),
-        None => "",
-    };
-    format!("{name}({peer_id}{username})")
 }
 
 async fn async_main() {
@@ -160,11 +128,11 @@ async fn async_main() {
         .stream_updates(updates, UpdatesConfiguration { catch_up: true })
         .await
         .unwrap();
-    let mut now = Instant::now();
+    let mut timer = interval(SYNC_INTERVAL);
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
-            result = updates.next(), if handler_tasks.is_empty() => {
+            result = updates.next() => {
                 match result {
                     Ok(update) => {
                         let handle = client.clone();
@@ -178,9 +146,11 @@ async fn async_main() {
             Some(res) = handler_tasks.join_next(), if !handler_tasks.is_empty() => {
                 if let Err(e) = res {
                     log::error!("handler task panicked: {e}");
-                } else if handler_tasks.is_empty() && now.elapsed() >= Duration::from_secs(SYNC_REST_SECONDS) {
-                    now = Instant::now();
-                    log::info!("Saving session when idle...");
+                }
+            }
+            _ = timer.tick() => {
+                if handler_tasks.is_empty() {
+                    log::info!("Saving session periodically...");
                     if let Err(e) = updates
                         .sync_update_state()
                         .await {
@@ -211,8 +181,8 @@ async fn async_main() {
     let _ = pool_task.await;
 
     // Give a chance to all on-going handlers to finish.
-    log::info!("Waiting for any slow handlers to finish...");
-    while let Some(_) = handler_tasks.join_next().await {}
+    // log::info!("Waiting for any slow handlers to finish...");
+    // while let Some(_) = handler_tasks.join_next().await {}
 }
 
 fn main() {

@@ -5,7 +5,7 @@ use std::env;
 use std::sync::{Arc, OnceLock};
 
 use anyhow::Context;
-use data_source::{download_media, get_tweet, parse_msg};
+use data_source::{get_tweet, parse_msg};
 use grammers_client::Client;
 use grammers_client::media::{InputMedia, Media};
 use grammers_client::message::{InputMessage, Message};
@@ -13,6 +13,7 @@ use grammers_session::types::{PeerKind, PeerRef};
 use grammers_tl_types as tl;
 use regex::regex;
 
+use crate::curl::stream_download;
 use crate::database as db;
 
 const HELP: &'static str = r#"推特解析，支持批量解析多条链接。
@@ -38,12 +39,17 @@ async fn handler(client: Client, message: Arc<Message>) {
         return;
     }
 
-    let peer = message.peer().unwrap();
-    let peer_ref = peer.to_ref().await.unwrap().unwrap();
-
-    if peer.id().kind() != PeerKind::User {
+    let peer_id = message.peer_id();
+    if peer_id.kind() != PeerKind::User {
         return;
     }
+
+    let peer_ref = message
+        .peer_ref()
+        .await
+        .ok()
+        .and_then(|x| x)
+        .unwrap_or_else(|| peer_id.to_ambient_ref());
 
     let msg_id = message.id();
     let text = message.text();
@@ -89,7 +95,7 @@ async fn send_twitter(
         )
         .await?;
 
-    let wreq_client = crate::get_client()?;
+    let wreq_client = crate::curl::get_client().build()?;
     let tweet = match get_tweet(&wreq_client, &tid).await {
         Ok(tweet) => tweet,
         Err(e) => {
@@ -101,6 +107,7 @@ async fn send_twitter(
     let msg = parse_msg(&tweet);
     let mut medias = Vec::with_capacity(4);
     if let Some(entities) = &tweet.entities().media {
+        let headers = Vec::new();
         let count = entities.len();
         for (index, media) in entities.into_iter().enumerate() {
             let media_type = media.r#type.as_str();
@@ -172,7 +179,7 @@ async fn send_twitter(
                 };
                 let name = format!("{key}.{ext}");
 
-                let path = match download_media(&wreq_client, url, &name).await {
+                let path = match stream_download(&wreq_client, url, &name, &headers).await {
                     Ok(path) => path,
                     Err(e) => {
                         let tip = format!("[{tid}] 媒体 {} 下载失败", index + 1);
@@ -200,7 +207,7 @@ async fn send_twitter(
                             format!("{}?name=orig", thumb_url)
                         };
                         let thumb_name = format!("{key}_thumb.jpg");
-                        let thumb = match download_media(&wreq_client, thumb_url, &thumb_name).await
+                        let thumb = match stream_download(&wreq_client, thumb_url, &thumb_name, &headers).await
                         {
                             Ok(path) => match client.upload_file(path).await {
                                 Ok(uploaded) => Some(uploaded.raw),
