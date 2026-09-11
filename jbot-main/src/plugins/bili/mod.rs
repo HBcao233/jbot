@@ -497,7 +497,7 @@ async fn send_bili(
         }
     };
 
-    let mut input_message = InputMessage::new().html(msg);
+    let mut input_message = InputMessage::new().html(msg).reply_to(Some(msg_id));
     if let Some(m) = input_media {
         input_message = input_message.media(m);
     }
@@ -549,7 +549,7 @@ async fn send_bili(
     };
 
     client
-        .send_message(peer_ref, InputMessage::new().photo(uploaded))
+        .send_message(peer_ref, InputMessage::new().photo(uploaded).reply_to(Some(msg_id)))
         .await?;
 
     Ok(())
