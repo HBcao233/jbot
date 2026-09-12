@@ -15,13 +15,13 @@ use grammers_session::types::{PeerId, PeerKind, PeerRef};
 use grammers_tl_types as tl;
 use regex::regex;
 use tokio::fs;
-use tokio::process::Command;
 use tokio::sync::{Mutex, oneshot};
 use types::BiliId;
 
+use crate::FFmpeg;
 use crate::curl::{stream_download, stream_download_with_callback};
 use crate::database as db;
-use crate::progress::{Progress, ProgressScheduler};
+use crate::progress::{Progress, ProgressScheduler, ProgressStyle};
 use crate::utils::upload_file_with_callback;
 
 const HELP: &str = "Bilibili 解析。用法: /bili <url>";
@@ -377,6 +377,7 @@ async fn send_bili(
             let name = format!("{key}.mp4");
 
             let prefix = format!("[{bvid}] 下载音频中...");
+            bar.style(ProgressStyle::Size);
             bar.prefix(&prefix);
             mid.edit(prefix).await?;
             let audio_path = match stream_download_with_callback(
@@ -400,6 +401,7 @@ async fn send_bili(
             };
 
             let prefix = format!("[{bvid}] 下载视频中...");
+            bar.style(ProgressStyle::Size);
             bar.prefix(&prefix);
             mid.edit(prefix).await?;
             let video_path = match stream_download_with_callback(
@@ -422,8 +424,15 @@ async fn send_bili(
                 }
             };
 
-            mid.edit(format!("[{bvid}] 处理中...")).await?;
-            let path = match merge_media(audio_path, video_path, &name).await {
+            let prefix = format!("[{bvid}] 处理中...");
+            bar.style(ProgressStyle::Time);
+            bar.prefix(&prefix);
+            mid.edit(prefix).await?;
+            let path = match merge_media(audio_path, video_path, &name, |current, total| {
+                bar.sync_update(current, total);
+            })
+            .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let tip = format!("[{bvid}] 视频处理失败");
@@ -434,6 +443,7 @@ async fn send_bili(
             };
 
             let prefix = format!("[{bvid}] 上传中...");
+            bar.style(ProgressStyle::Size);
             bar.prefix(&prefix);
             mid.edit(prefix).await?;
             let Ok(uploaded) = upload_file_with_callback(&client, path, |uploaded, total| {
@@ -592,11 +602,15 @@ async fn send_bili(
     Ok(())
 }
 
-pub async fn merge_media(
+pub async fn merge_media<F>(
     audio_path: PathBuf,
     video_path: PathBuf,
     name: &str,
-) -> anyhow::Result<PathBuf> {
+    progress_callback: F,
+) -> anyhow::Result<PathBuf>
+where
+    F: Fn(usize, Option<usize>),
+{
     let cache_dir = Path::new("cache");
     if let Err(e) = fs::create_dir_all(cache_dir).await {
         log::error!("缓存文件夹创建失败: {e:?}");
@@ -607,23 +621,14 @@ pub async fn merge_media(
         return Ok(path);
     }
 
-    let status = Command::new("ffmpeg")
-        .args([
-            "-i",
-            audio_path.to_string_lossy().as_ref(),
-            "-i",
-            video_path.to_string_lossy().as_ref(),
-            "-c:a",
-            "copy",
-            "-c:v",
-            "copy",
-            "-y",
-            path.to_string_lossy().as_ref(),
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::inherit()) // 想看 ffmpeg 日志就 inherit，不想看就 null
-        .status()
+    let status = FFmpeg::new()
+        .arg("-i")
+        .arg(audio_path)
+        .arg("-i")
+        .arg(video_path)
+        .args(["-c:a", "copy", "-c:v", "copy", "-y"])
+        .arg(&path)
+        .run_with_progress(progress_callback)
         .await?;
 
     if !status.success() {

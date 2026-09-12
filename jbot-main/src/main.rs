@@ -2,10 +2,11 @@ extern crate jbot_macro;
 mod button;
 pub mod curl;
 pub mod database;
+mod ffmpeg;
 mod grouped;
 mod plugins;
 pub mod progress;
-mod utils;
+pub mod utils;
 
 use std::env;
 use std::sync::Arc;
@@ -22,6 +23,8 @@ use simple_logger::SimpleLogger;
 use tokio::runtime;
 use tokio::task::JoinSet;
 use tokio::time::interval;
+
+pub use crate::ffmpeg::FFmpeg;
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_SYNC_INTERVAL: Duration = Duration::from_secs(600);
