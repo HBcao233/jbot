@@ -1,6 +1,4 @@
-// 代码来自 https://github.com/Colerar/abv/
-
-use std::{borrow::Cow, ptr};
+// 代码来自 https://github.com/Colerar/abv/, 去掉了所有 unsafe blocks
 
 const XOR_CODE: u64 = 23442827791579;
 const MASK_CODE: u64 = 2251799813685247;
@@ -21,17 +19,17 @@ const ALPHABET: [u8; BASE as usize] = [
 
 #[rustfmt::skip]
 fn rev(value: u8) -> Option<u8> {
-  use std::option::Option::Some as S;
-  match value {
-    b'F' => S(0),  b'c' => S(1),  b'w' => S(2),  b'A' => S(3),  b'P' => S(4),  b'N' => S(5),  b'K' => S(6),  b'T' => S(7),  b'M' => S(8),
-    b'u' => S(9),  b'g' => S(10), b'3' => S(11), b'G' => S(12), b'V' => S(13), b'5' => S(14), b'L' => S(15), b'j' => S(16), b'7' => S(17),
-    b'E' => S(18), b'J' => S(19), b'n' => S(20), b'H' => S(21), b'p' => S(22), b'W' => S(23), b's' => S(24), b'x' => S(25), b'4' => S(26),
-    b't' => S(27), b'b' => S(28), b'8' => S(29), b'h' => S(30), b'a' => S(31), b'Y' => S(32), b'e' => S(33), b'v' => S(34), b'i' => S(35),
-    b'q' => S(36), b'B' => S(37), b'z' => S(38), b'6' => S(39), b'r' => S(40), b'k' => S(41), b'C' => S(42), b'y' => S(43), b'1' => S(44),
-    b'2' => S(45), b'm' => S(46), b'U' => S(47), b'S' => S(48), b'D' => S(49), b'Q' => S(50), b'X' => S(51), b'9' => S(52), b'R' => S(53),
-    b'd' => S(54), b'o' => S(55), b'Z' => S(56), b'f' => S(57),
-    _ => None
-  }
+    use std::option::Option::Some as S;
+    match value {
+        b'F' => S(0),  b'c' => S(1),  b'w' => S(2),  b'A' => S(3),  b'P' => S(4),  b'N' => S(5),  b'K' => S(6),  b'T' => S(7),  b'M' => S(8),
+        b'u' => S(9),  b'g' => S(10), b'3' => S(11), b'G' => S(12), b'V' => S(13), b'5' => S(14), b'L' => S(15), b'j' => S(16), b'7' => S(17),
+        b'E' => S(18), b'J' => S(19), b'n' => S(20), b'H' => S(21), b'p' => S(22), b'W' => S(23), b's' => S(24), b'x' => S(25), b'4' => S(26),
+        b't' => S(27), b'b' => S(28), b'8' => S(29), b'h' => S(30), b'a' => S(31), b'Y' => S(32), b'e' => S(33), b'v' => S(34), b'i' => S(35),
+        b'q' => S(36), b'B' => S(37), b'z' => S(38), b'6' => S(39), b'r' => S(40), b'k' => S(41), b'C' => S(42), b'y' => S(43), b'1' => S(44),
+        b'2' => S(45), b'm' => S(46), b'U' => S(47), b'S' => S(48), b'D' => S(49), b'Q' => S(50), b'X' => S(51), b'9' => S(52), b'R' => S(53),
+        b'd' => S(54), b'o' => S(55), b'Z' => S(56), b'f' => S(57),
+        _ => None
+    }
 }
 
 pub fn av2bv(avid: u64) -> Result<String, ()> {
@@ -51,69 +49,48 @@ pub fn av2bv(avid: u64) -> Result<String, ()> {
     while tmp != 0 {
         let table_idx = tmp % BASE;
         // SAFETY: a positive number mod 58 is in 0..58
-        let part = unsafe { ALPHABET.get_unchecked(table_idx as usize) };
-        unsafe {
-            let ele = bytes.get_unchecked_mut(bv_idx);
-            *ele = *part;
-        }
+        bytes[bv_idx] = ALPHABET[table_idx as usize];
         tmp /= BASE;
         bv_idx -= 1;
     }
 
     // SAFETY, 3 < 4 < 7 < 9 < BV_LEN
-    unsafe {
-        unchecked_swap(&mut bytes, 3, 9);
-        unchecked_swap(&mut bytes, 4, 7);
-    }
+    bytes.swap(3, 9);
+    bytes.swap(4, 7);
 
     // SAFETY: bytes represent an ASCII string
-    let str = unsafe { String::from_utf8_unchecked(bytes.to_vec()) };
+    let str = String::from_utf8(bytes.to_vec()).unwrap();
 
     Ok(str)
 }
 
 pub fn bv2av<'a, S>(bvid: S) -> Result<u64, ()>
 where
-    S: Into<Cow<'a, str>>,
+    S: AsRef<str>,
 {
-    let bvid: Cow<_> = bvid.into();
-    if bvid.is_empty() {
+    let bvid = bvid.as_ref();
+    if bvid.is_empty() || !bvid.is_ascii() {
         return Err(());
     }
 
-    if !bvid.is_ascii() {
+    if bvid.len() != BV_LEN {
         return Err(());
-    }
-
-    match bvid.as_bytes().len().cmp(&BV_LEN) {
-        std::cmp::Ordering::Less => return Err(()),
-        std::cmp::Ordering::Greater => return Err(()),
-        _ => {}
     }
 
     // SAFETY: Already checked before
-    let prefix = unsafe { bvid.get_unchecked(0..3) };
-    if !prefix.eq_ignore_ascii_case(PREFIX) {
+    if !bvid[0..3].eq_ignore_ascii_case(PREFIX) {
         return Err(());
     }
 
-    let mut bvid = match bvid {
-        Cow::Borrowed(str) => str.to_string(),
-        Cow::Owned(string) => string,
-    };
+    let mut bytes = bvid.as_bytes().to_vec();
 
-    unsafe {
-        let bv_vec = bvid.as_mut_vec();
-        unchecked_swap(bv_vec, 3, 9);
-        unchecked_swap(bv_vec, 4, 7);
-    }
+    bytes.swap(3, 9);
+    bytes.swap(4, 7);
 
-    let mut tmp = 0;
+    let mut tmp: u64 = 0;
 
-    for byte in &bvid.as_bytes()[3..] {
-        let Some(idx) = rev(*byte) else {
-            return Err(());
-        };
+    for byte in &bytes[3..] {
+        let idx = rev(*byte).ok_or(())?;
         tmp = tmp * BASE + idx as u64;
     }
 
@@ -137,10 +114,25 @@ where
     Ok(avid)
 }
 
-unsafe fn unchecked_swap<I>(array: &mut [I], index_a: usize, index_b: usize) {
-    let pa = ptr::addr_of_mut!(array[index_a]);
-    let pb = ptr::addr_of_mut!(array[index_b]);
-    unsafe {
-        ptr::swap(pa, pb);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const IDS: [(u64, &str); 7] = [
+        (117101125764901, "BV1Akb16VEhm"),
+        (117216435510550, "BV1c7t16iEYe"),
+        (117227810457493, "BV1E3bw6yEnp"),
+        (117195178841241, "BV1p5t366EuM"),
+        (115441708044072, "BV1qmsrzZENe"),
+        (117218431996158, "BV1sbbj6bEut"),
+        (117223330942671, "BV1zKbp6BEgj"),
+    ];
+
+    #[test]
+    fn test_abv() {
+        for (av, bv) in IDS {
+            assert_eq!(&av2bv(av).unwrap(), bv);
+            assert_eq!(bv2av(bv).unwrap(), av);
+        }
     }
 }
