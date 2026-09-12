@@ -359,48 +359,55 @@ async fn send_bili(
         let bar = ProgressScheduler::new(Progress::new(Arc::clone(&mid)));
 
         if let Some(dash) = playurl.dash {
-            let audio = dash.audio.into_iter().max_by_key(|x| x.id).unwrap();
+            let audio_path = match dash.audio {
+                None => None,
+                Some(audios) => {
+                    let audio = audios.into_iter().max_by_key(|x| x.id).unwrap();
+                    log::info!("使用 audio id: {}", audio.id);
+
+                    let audio_url = audio.base_url;
+                    let audio_name = format!("{key}_audio.mp4");
+                    let prefix = format!("[{bvid}] 下载音频中...");
+                    log::info!("{prefix}");
+                    bar.style(ProgressStyle::Size);
+                    bar.prefix(&prefix);
+                    mid.edit(prefix).await?;
+
+                    match stream_download_with_callback(
+                        &wreq_client,
+                        audio_url,
+                        &audio_name,
+                        &headers,
+                        |downloaded, total| {
+                            bar.sync_update(downloaded, total);
+                        },
+                    )
+                    .await
+                    {
+                        Ok(path) => Some(path),
+                        Err(e) => {
+                            let tip = format!("[{bvid}] 音频下载失败");
+                            log::error!("{tip}: {e}");
+                            mid.edit(tip).await?;
+                            return Ok(());
+                        }
+                    }
+                }
+            };
+
             let video = dash
                 .video
                 .into_iter()
                 .filter(|x| &x.mime_type == "video/mp4" && x.codecs.starts_with("avc1"))
                 .max_by_key(|x| x.id)
                 .unwrap();
-            log::info!("使用 audio id: {}", audio.id);
             log::info!("使用 video id: {}", video.id);
 
-            let audio_url = audio.base_url;
             let video_url = video.base_url;
-
-            let audio_name = format!("{key}_audio.mp4");
             let video_name = format!("{key}_video.mp4");
-            let name = format!("{key}.mp4");
-
-            let prefix = format!("[{bvid}] 下载音频中...");
-            bar.style(ProgressStyle::Size);
-            bar.prefix(&prefix);
-            mid.edit(prefix).await?;
-            let audio_path = match stream_download_with_callback(
-                &wreq_client,
-                audio_url,
-                &audio_name,
-                &headers,
-                |downloaded, total| {
-                    bar.sync_update(downloaded, total);
-                },
-            )
-            .await
-            {
-                Ok(path) => path,
-                Err(e) => {
-                    let tip = format!("[{bvid}] 音频下载失败");
-                    log::error!("{tip}: {e}");
-                    mid.edit(tip).await?;
-                    return Ok(());
-                }
-            };
 
             let prefix = format!("[{bvid}] 下载视频中...");
+            log::info!("{prefix}");
             bar.style(ProgressStyle::Size);
             bar.prefix(&prefix);
             mid.edit(prefix).await?;
@@ -424,25 +431,34 @@ async fn send_bili(
                 }
             };
 
-            let prefix = format!("[{bvid}] 处理中...");
-            bar.style(ProgressStyle::Time);
-            bar.prefix(&prefix);
-            mid.edit(prefix).await?;
-            let path = match merge_media(audio_path, video_path, &name, |current, total| {
-                bar.sync_update(current, total);
-            })
-            .await
-            {
-                Ok(p) => p,
-                Err(e) => {
-                    let tip = format!("[{bvid}] 视频处理失败");
-                    log::error!("{tip}: {e}");
-                    mid.edit(tip).await?;
-                    return Ok(());
+            let name = format!("{key}.mp4");
+            let path = match audio_path {
+                None => video_path,
+                Some(ap) => {
+                    let prefix = format!("[{bvid}] 处理中...");
+                    log::info!("{prefix}");
+                    bar.style(ProgressStyle::Time);
+                    bar.prefix(&prefix);
+                    mid.edit(prefix).await?;
+
+                    match merge_media(ap, video_path, &name, |current, total| {
+                        bar.sync_update(current, total);
+                    })
+                    .await
+                    {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let tip = format!("[{bvid}] 视频处理失败");
+                            log::error!("{tip}: {e}");
+                            mid.edit(tip).await?;
+                            return Ok(());
+                        }
+                    }
                 }
             };
 
             let prefix = format!("[{bvid}] 上传中...");
+            log::info!("{prefix}");
             bar.style(ProgressStyle::Size);
             bar.prefix(&prefix);
             mid.edit(prefix).await?;
