@@ -101,7 +101,7 @@ pub struct BiliInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct DescItem {
-    pub biz_id: i32,
+    pub biz_id: u64,
     pub raw_text: String,
     pub r#type: u8,
 }
@@ -182,7 +182,7 @@ pub struct PlayurlInfo {
 #[derive(Debug, Deserialize)]
 pub struct DashInfo {
     // pub duration: u32,
-    pub audio: Vec<DashMedia>,
+    pub audio: Option<Vec<DashMedia>>,
     pub video: Vec<DashMedia>,
 }
 
