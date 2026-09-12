@@ -33,35 +33,36 @@ _stop(){
     else
         p=${pid}
         kill -SIGINT "$p"
-        echo "杀死进程 $p"
+        echo -n "杀死进程 $p"
+
+        local begin=$(date +%s)
+        local end
+        while kill -0 "$pid" > /dev/null 2>&1
+        do
+            echo -n "."
+            sleep 0.1;
+
+            end=$(date +%s)
+            if [ $((end-begin)) -gt 2  ]; then
+                echo -e "\nTimeout"
+                break;
+            fi
+        done
+        echo
+
+        pid=0
+        status=0
+        start_time=""
     fi
-
-    local begin=$(date +%s)
-    local end
-    while kill -0 "$pid" > /dev/null 2>&1
-    do
-        echo -n "."
-        sleep 0.1;
-
-        end=$(date +%s)
-        if [ $((end-begin)) -gt 2  ]; then
-            echo -e "\nTimeout"
-            break;
-        fi
-    done
-
-    pid=0
-    status=0
-    start_time=""
 }
 
 _start(){
-  if [ ${status} -gt 0 ]; then
-    echo "jbot 已经正在运行啦"
-  else
-    cd $root && nohup $root/target/release/jbot > $root/bot.log 2>&1 &
-    echo "启动 jbot 中..."
-  fi
+    if [ ${status} -gt 0 ]; then
+        echo "jbot 已经正在运行啦"
+    else
+        cd $root && nohup $root/target/release/jbot > $root/bot.log 2>&1 &
+        echo "启动 jbot 中..."
+    fi
 }
 
 action="$1"
